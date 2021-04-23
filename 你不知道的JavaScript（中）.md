@@ -972,4 +972,20 @@ Promise.race([
   }
 )
 ```
+如果向Promise.resolve(..)传递一个非Promise、非thenable的立即值，就会得到一个用这个值填充的promise。
+
+```javascript
+var p1 = new Promise(function(resolve, reject) {
+  resolve(42);
+})
+
+var p2 = Promise.resolve(42)
+
+var p1 = Promise.resolve(42)
+
+var p2 = Promise.resolve(p1)
+
+p1 === p2  // true
+```
+
 
