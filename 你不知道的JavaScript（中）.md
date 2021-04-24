@@ -988,4 +988,206 @@ var p2 = Promise.resolve(p1)
 p1 === p2  // true
 ```
 
+#### 链式流
+
+Promise的两个固有行为
+
+1.每次你对Promise调用then(..)，它都会创建并返回一个新的Promise，我们可以将其链接起来。
+
+2.不管从then(..)调用的完成回调（第一个参数）返回的值是什么，它都会被自动设置为被链接Promise的完成。
+
+```javascript
+var p = Promise.resolve(21);
+
+p.then(function(v) {
+    console.log(v) // 21
+    // 创建一个promise并返回
+    return new Promise(function(resolve, reject){
+        // 引入异步
+        setTimeout(function(){
+            // 用值42填充
+            resolve(V*2)
+        }, 100)
+    })
+})
+.then(function(v) {
+    // 在前一步中的100ms延迟之后运行
+    console.log(v) // 42
+})
+```
+
+在这些例子中，一步步传递的值是可选的。如果不显式返回一个值，就会隐式返回undefined，并且这些promise仍然会以同样的方式链接在一起。
+
+delay用法
+
+```javascript
+function delay(time) {
+    return new Promise(function (resolve, reject) {
+        setTimeout(resolve, time)
+    })
+}
+
+delay(100)
+.then(function STEP2() {
+    console.log("2")
+    return delay(200)
+})
+.then(function STEP1() {
+    console.log("1")
+    return delay(200)
+})
+....
+```
+
+reject(..)不会像resolve(..)一样进行展开。如果像reject(..)传入一个Promise/thenable值。它会把这个值原封不动地设置为拒绝理由。后续的拒绝处理函数接收到的式你实际传给你reject(..)的那个Promise/thenable，而不是其底层的立即值。
+
+#### Promise.all([..])
+
+并发执行
+
+传入的数组中的值可以是Promise、thenable，甚至是立即值。就本质而言，列表中的每个值都会通过Promise.resolve(..)过滤，以确保要等待的是一个真正的Promise。如果数组为空，主Promise就会立即完成。
+
+从Promise.all([..])返回的主Promise在且仅在所有的成员promise都完成后才会完成。如果这些promise中有任何一个被拒绝的话，主promise就会立即被拒绝，并丢弃来自其他所有promise的结果。
+
+#### Promise.race([..])
+
+一旦有任何一个Promise决议完成，Promise.race([..])就会完成，一旦有任何一个Promise决议为拒绝，它就会拒绝。
+
+如果传入了空数组，主Promise永远不会决议。
+
+##### 超时竞赛
+
+```javascript
+// foo()是一个支持Promise的函数
+// foo()设定超时
+
+Promise.race([
+    foo(),  //启动foo()
+    timeoutPromise(3000)   //给他3秒
+])
+.then(
+    function() {
+        // foo(..)按时完成
+    },
+    function(err) {
+        // 要么foo()被拒绝了，要么只是没能够按时完成,
+        // 因此要查看err了解具体原因
+    }
+)
+```
+
+#### 查看Promise决议的辅助工具
+
+```javascript
+if(!Promise.observe) {
+    Promise.observe = function(pr, cb) {
+        // 观察pr的决议
+        pr.then(
+            function fulfilled(msg) {
+                // 安排异步回调（作为Job）
+                Promise.resolve(msg).then(cb)
+            },
+            function rejected(err) {
+                Promise.resolve(err).then(cb)
+            }
+        )
+        // 返回最初的promise
+        return pr;
+    }
+}
+
+Promise.race([
+    Promise.observe(
+        foo(),
+        function cleanup(msg) {
+            // 在foo()之后清理，即使它没有在超时之前完成
+        }
+    ),
+    timeoutPromise(3000) //给它3秒钟
+])
+```
+
+#### 其他
+
+##### none([..])
+
+所有Promise都要被拒绝，即拒绝转化为完成值。
+
+##### any([..])
+
+只需要完成一个Promise即可。
+
+##### first([..])
+
+只要第一个Promise完成，它就会忽略后续的任何拒绝和完成。
+
+##### last([..])
+
+只有最后一个完成胜出。
+
+##### 自定义
+
+```javascript
+if (!Promise.map) {
+    Promise.map = function(vals, cb) {
+        return Promise.all(
+            vals.map(function(val) {
+                // 用val异步map之后决议的新promise替换val
+                return new Promise(function(resolve) {
+                    cb(val, resolve)
+                });
+            })
+        );
+    };
+}
+
+var p1 = Promise.resolve(21);
+var p2 = Promise.resolve(42);
+var p3 = Promise.reject("Oops");
+
+Promise.map([p1, p2, p3], function(pr, done) {
+    Promise.resolve(pr)
+    .then(
+        function(v){
+            done(v*2)
+        },
+        done
+    );
+})
+.then(function(vals) {
+    console.log(vals); // [42, 84, "Oops"]
+})
+```
+
+#### Promise API 概述
+
+##### new Promise(..)
+
+```javascript
+var p = new Promise(function(resolve, reject) {
+})
+```
+
+##### Promise.resolve(..)和Promise.reject(..)
+
+##### then(..)和catch(..)
+
+##### Promise.all([..])和Promise.race([..])
+
+#### Promise局限性
+
+Promise链中的错误很容易被无意中默默忽略掉。
+
+由于一个Promise链仅仅是链接到一起的成员Promise，没有把整个链标识为一个个体的实体，这意味着没有外部方法可以用于观察可能发生的错误。
+
+如果构建了一个没有错误处理函数的Promise链，链中任何地方的任何错误都会在链中一直传播下去，直到被查看。
+
+如果错误被处理了，那么后续的catch就捕获不到了。
+
+单一值：Promise只能有一个完成值或一个拒绝理由。（解决方法：封装）
+
+单决议：Promise只能被决议一次。
+
+无法取消Promise
+
 
