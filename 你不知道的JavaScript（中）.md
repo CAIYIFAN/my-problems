@@ -1190,4 +1190,236 @@ Promise链中的错误很容易被无意中默默忽略掉。
 
 无法取消Promise
 
+## 生成器
+
+```javascript
+function *foo(x) {
+  var y = x * (yield)
+  return y
+}
+
+var it = foo(6)
+
+// 启动foo(..)
+it.next()
+
+var res = it.next(7)
+
+res.value // 42
+```
+
+通过yield和next(..)建立双向消息传递。
+
+```javascript
+function *foo() {
+  var x = yield 2;
+  z++;
+  var y = yield (x * z);
+  console.log(x, y, z)
+}
+
+var z = 1;
+
+var it1 = foo();
+var it2 = foo();
+
+var val1 = it1.next().value;  // 2 <-- yield 2
+var val2 = it2.next().value;  // 2 <-- yield 2
+
+val1 = it1.next(val2*10).value;  // 40 <-- x: 20, z: 2
+val2 = it2.next(val1* 5).value;  // 600 <-- x: 200, z: 3
+
+it1.next(val2 / 2);  // y: 300
+										 // 20 300 3
+it2.next(val1 / 4);  // y: 10
+										 // 200 10 3
+```
+
+在生成器没有输入的情况下，可能从某个独立连接的资源长生自己的值。
+
+```javascript
+var something = (function(){
+  var nextVal;
+  
+  return {
+    // for..of循环需要
+    // ES6中的计算属性
+    [Symbol.iterator]: function() {return this;},
+    // 标准迭代器接口方法
+    next: function() {
+      if (nextVal === undefined) {
+        nextVal = 1
+      } else {
+        nextVal = (3* nextVal) + 6
+      }
+      return {done:false, value: nextVal};
+    }
+  };
+})();
+
+something.next().value;  // 1
+something.next().value;  // 9
+something.next().value;  // 33
+something.next().value;  // 105
+```
+
+```javascript
+var a = [1,3,5,7,9]
+
+var it = a[Symbol.iterator]()
+
+it.next().value; // 1
+it.next().value; // 3
+it.next().value; // 5
+```
+
+终止生成器
+
+```javascript
+function *something() {
+  try {
+    var nextVal
+    
+    while (true) {
+      if (nextVal === undefined) {
+        nextVal = 1;
+      } else {
+        nextVal = (3 * nextVal) + 6;
+      }
+      yield nextVal;
+    }
+  }
+  finally {
+    console.log("cleaning up!")
+  }
+}
+
+var it = something()
+for (var v of it) {
+  console.log(v);
+  
+  // 不要死循环
+  if (v > 500) {
+    console.log(
+      // 完成生成器的迭代器
+      it.return("Hello world").value
+    );
+    // 这里不需要break
+  }
+}
+
+// 1 9 33 105 321 969
+// 清理！
+// Hello World 
+```
+
+Generator Runner 
+
+```javascript
+function run(gen) {
+  var args = [].slice.call(arguments, 1), it;
+  
+  // 在当前上下文中初始化生成器
+  it = gen.apply(this, args);
+  
+  // 返回一个promise用于生成器完成
+  return Promise.resolve()
+  		.then(function handleNext(value) {
+    		// 对下一个yield出的值运行
+    		var next = it.next(value);
+    		
+    		return (function handleResult(next) {
+          // 	生成器运行完毕了吗？
+          if (next.done) {
+            return next.value
+          }
+          // 否则继续运行
+          else {
+            return Promise.resolve(next.value)
+            	.then(
+              		// 成功就恢复异步循环，把决议的值发回生成器。
+              handleNext,
+              
+              // 如果value是被拒绝的promise，
+              // 就把错误传回生成器进行错误处理
+              function handleErr(err) {
+                return Promise.resolve(
+                  it.throw(err)
+                )
+                .then(handleResult);
+              }
+            );
+          }
+        })(next)
+  });
+}
+```
+
+thunk函数
+
+```javascript
+function thunkify(fn) {
+  var args = [].slice.call(arguments, 1)
+  return function(cb) {
+    args.push(cb)
+    return fn.apply(null, args)
+  }
+}
+
+var fooThunk = thunkify(foo, 3, 4)
+
+fooThunk(function(sum) {
+  console.log(sum)
+})
+```
+
+#### 小结
+
+生成器ES6的一个新的函数类型，它并不像普通函数那样总是运行到结束。取而代之的是，生成器可以在运行当中（完全保持其状态）暂停，并且将来在从暂停的地方恢复运行。
+
+yield/next(..)这一对不只是一种控制机制，实际上也是一种双向消息传递机制。yield..表达式本质上是暂停下来等待某个值，接下来的next(..)调用会向被暂停的yield表达式传回一个值（或者是隐式的undefined）。
+
+生成器的关键优点：生成器内部的代码是以自然的同步/顺序方式表达任务的一系列步骤。其技巧在于，我们把可能的异步隐藏在了关键字yield的后面，把异步移动到控制器生成器的迭代器的代码部分。
+
+生成器为异步代码保持了顺序、同步、阻塞的代码模式，这使得大脑可以更自然地追踪代码，解决了基于回调的异步的两个关键缺陷之一。
+
+## 程序性能
+
+专用Worker和创建它的程序之间是一对一的关系。
+
+在Worker内部是无法访问主程序的任何资源的，这意味着不能访问它的任何全局变量，也不能访问页面的DOM或者其他资源。这是一个完全独立的线程。
+
+但是，可以执行网络操作（Ajax、WebSockets）以及设定定时器。还有，Woeker可以访问几个重要的全局变量和功能的本地副本，包含navigator、location、JSON和applicationCache。
+
+可以通过importScripts(..)向Worker加载额外的JavaScript脚本。这些脚本加载是同步的，也就是说importScripts(..)调用会阻塞余下Worker的执行，直到文件加载和执行完成。
+
+Web Worker通用应用的方面：
+
+1.处理密集型数学计算
+
+2.大数据集排序
+
+3.数据处理（压缩、音频分析、图像处理等）
+
+4.高流量网络通信
+
+##### 共享Worker --------SharedWorker
+
+它可以与站点的多个程序实例或者多个页面连接。
+
+#### 性能测试
+
+```javascript
+// 不太好的做法
+var start = (new Date()).getTime(); // 或者Date.now()
+
+// 进行一些操作
+
+var end = (new Date()).getTime();
+
+console.log("Duration:", (end - start));
+```
+
+##### 性能工具Benchmark.js、jsPerf
+
 
