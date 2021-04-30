@@ -1924,3 +1924,216 @@ promise.success(function(value) {
 })
 ```
 
+## 代理（Proxy）和反射（Reflection）API
+
+### 创建一个简单的代理
+
+```javascript
+let target = {};
+let proxy = new Proxy(target, {});
+
+proxy.name = "proxy";
+console.log(proxy.name); // "proxy"
+console.log(target.name); // "proxy"
+
+target.name = "target"
+console.log(proxy.name);  // "target"
+console.log(target.name); // "target"
+```
+
+### 使用set陷阱验证属性
+
+set陷阱接受4个参数
+
+- trapTarget 用于接受属性（代理的目标）的对象
+- key 要写入的属性键（字符串或Symbol类型）
+- value 被写入属性的值
+- receiver 操作发生的对象
+
+```javascript
+let target = {
+    name: "target"
+};
+
+let proxy = new Proxy(target, {
+    set(trapTarget, key, value, receiver) {
+        // 忽略不希望受到影响的己有属性
+        if(!trapTarget.hasOwnProperty(key)) {
+            if (isNaN(value)) {
+                throw new TypeError("属性必须是数字")
+            }
+        }
+        
+        // 添加属性
+        return Reflect.set(trapTarget, key, value, receiver);
+    }
+})
+```
+
+### 用get陷阱验证对象结构
+
+get陷阱接受3个参数
+
+- trapTarget 被读取属性的源对象
+- key 要读取的属性键
+- receiver 操作发生的对象
+
+```javascript
+let target = {
+    name: "target"
+};
+
+let proxy = new Proxy(target, {
+    get(trapTarget, key, receiver) {
+            if (!(key in receiver)) {
+                throw new TypeError("属性" + key + "不存在")
+            }
+        // 添加属性
+        return Reflect.Get(trapTarget, key, receiver);
+    }
+})
+```
+
+### 使用has陷阱隐藏已有属性
+
+has陷阱接受2个参数
+
+- trapTarget 读取属性的对象（代理的目标）
+- key 要检查的属性键（字符串或Symbol）
+
+```javascript
+let target = {
+    name: "target"
+};
+
+let proxy = new Proxy(target, {
+    	has(trapTarget, key) {
+            if (key === "value") {
+                return false
+            } else {
+                return Reflect.has(trapTarget, key)
+            }
+        }
+ 
+})
+```
+
+### 用deleteProperty陷阱防止删除属性
+
+它接受两个参数：
+
+- trapTarget 要删除属性的对象（代理的目标）
+- key 要删除的属性键（字符串或Symbol）
+
+```javascript
+let target = {
+    name: "target"
+};
+
+let proxy = new Proxy(target, {
+    	deleteProperty(trapTarget, key) {
+            if (key === "value") {
+                return false
+            } else {
+                return Reflect.deleteProperty(trapTarget, key)
+            }
+        }
+ 
+})
+```
+
+### 原型代理陷阱
+
+```javascript
+let target = {}
+let proxy = new Proxy(target, {
+    getPrototypeOf(trapTarget) {
+        return Reflect.getPrototypeOf(trapTarget);
+    },
+    setPrototypeOf(trapTarget, proto) {
+        return Reflect.setPrototypeOf(trapTarget, proto);
+    }
+})
+```
+
+### 对象可扩展性陷阱
+
+Reflect.isExtensible
+
+Reflect.preventExtensions
+
+### 属性描述符陷阱
+
+Reflect.defineProperty
+
+### 描述符对象限制
+
+Reflect.getOwnPropertyDescriptor
+
+### ownKeys陷阱
+
+Reflect.ownKeys()
+
+### 函数代理中的apply和construct陷阱
+
+Reflect.apply
+
+### 可撤销代理
+
+可以使用Proxy.revocable()方法创建可撤销的代理，该方法采用与Proxy构造函数相同的参数：目标对象和代理处理程序。
+
+- proxy 可被撤销的代理对象
+- revoke 撤销代理要调用的函数
+
+```javascript
+let target = {
+    name: "target"
+}
+
+let { proxy, revoke } = Proxy.revocable(target, {});
+
+console.log(proxy.name); "target"
+
+revoke();
+
+//抛出错误
+console.log(proxy.name)
+```
+
+## 用模块封装代码
+
+export和import的一个重要的限制是：他们必须在其他语句和函数之外使用。
+
+#### 导入绑定的一个微妙怪异之处
+
+```javascript
+export var name = "Nicholas";
+export function setName(newName) {
+    name = newName
+}
+
+import { name, setName } from './example.js'
+
+console.log(name); // "Nicholas"
+setName("Greg");
+console.log(name); // "Greg"
+
+name = "Nicholas" // 抛出错误
+```
+
+#### Web浏览器中的模块加载顺序
+
+用<script type="module">显示引入和用import隐式导入的所有模块都是按需加载并执行的。
+
+## ES7
+
+### 指数运算符
+
+``` javascript
+let result = 5**2
+
+console.log(result);  // 25
+console.log(result === Math.pow(5, 2)) // true
+```
+
+求幂运算符在JavaScript所有二进制运算符中具有最高的优先级。
